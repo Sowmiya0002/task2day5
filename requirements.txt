@@ -5,3 +5,5 @@ google-generativeai
 faiss-cpu
 sentence-transformers
 huggingface-hub
+pypdf
+langchain-community
