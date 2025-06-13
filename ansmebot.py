@@ -4,7 +4,7 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableMap, RunnablePassthrough, RunnablePick
+from langchain_core.runnables import RunnableMap
 from langchain_google_genai import ChatGoogleGenerativeAI
 import tempfile
 import os
@@ -68,11 +68,11 @@ if uploaded_file:
                     temperature=0.2
                 )
 
-                # RAG Chain
+                # RAG Chain with corrected key extraction
                 rag_chain = (
                     RunnableMap({
                         "context": lambda x: retriever.invoke(x["question"]),
-                        "question": RunnablePick(key="question")
+                        "question": lambda x: x["question"]
                     })
                     | prompt
                     | llm
