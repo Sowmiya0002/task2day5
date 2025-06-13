@@ -56,7 +56,7 @@ if uploaded_file and submit and question:
 
         # Step 6: Set up Chat Model
         model = ChatGoogleGenerativeAI(
-            model="gemini-pro",
+            model="gemini-2.0-flash-lite",
             temperature=0.2,
             google_api_key=GOOGLE_API_KEY
         )
