@@ -1,77 +1,60 @@
 import streamlit as st
-from PyPDF2 import PdfReader
-from langchain.text_splitter import CharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import ChatPromptTemplate
+import os
 from langchain_community.vectorstores import FAISS
-from langchain.chains import RetrievalQA
-import tempfile
+from langchain_community.embeddings import GoogleGenerativeAIEmbeddings
+from langchain_community.document_loaders import PyPDFLoader
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.chains.question_answering import load_qa_chain
+from langchain_google_genai import ChatGoogleGenerativeAI
+from dotenv import load_dotenv
 
-# --- Fixed Gemini API Key ---
-GOOGLE_API_KEY = "AIzaSyBoI2dqMaHAr3iwiQaW_-H_Jo9uAUxPqv4"
+# Load environment variables
+load_dotenv()
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Ask Your PDF 💬", layout="wide")
-st.title("📄 Ask Your PDF using Google Gemini + RAG")
-st.markdown("Upload a PDF file and ask questions based on its content.")
+# Set Gemini API key
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or "AIzaSyBoI2dqMaHAr3iwiQaW_-H_Jo9uAUxPqv4"
+os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
-# --- File Upload ---
-uploaded_file = st.file_uploader("Upload your PDF", type="pdf")
+# Streamlit app layout
+st.set_page_config(page_title="RAG Chatbot", layout="wide")
+st.title("📄 Ask Questions from Your PDF")
+st.markdown("Upload a PDF and ask questions using Google Gemini & FAISS-powered RAG pipeline.")
 
-# --- Text Input ---
-question = st.text_input("Ask a question about the PDF:")
-submit = st.button("🔍 Answer Me")
+# Upload PDF
+pdf = st.file_uploader("Upload your PDF", type="pdf")
 
-if uploaded_file and submit and question:
-    try:
-        # Step 1: Read PDF Text
-        pdf_reader = PdfReader(uploaded_file)
-        raw_text = ""
-        for page in pdf_reader.pages:
-            raw_text += page.extract_text()
+if pdf is not None:
+    # Save and load PDF
+    with open("temp.pdf", "wb") as f:
+        f.write(pdf.read())
 
-        if not raw_text:
-            st.error("❌ Could not extract text from the PDF.")
-            st.stop()
+    loader = PyPDFLoader("temp.pdf")
+    pages = loader.load()
 
-        # Step 2: Split Text
-        text_splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
-        texts = text_splitter.split_text(raw_text)
+    # Text splitting
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    docs = text_splitter.split_documents(pages)
 
-        # Step 3: Embedding Setup
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GOOGLE_API_KEY)
-        db = FAISS.from_texts(texts, embedding=embeddings)
+    # Embedding
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    vectorstore = FAISS.from_documents(docs, embeddings)
 
-        # Step 4: Create Retriever
-        retriever = db.as_retriever()
+    # User input
+    query = st.text_input("Ask a question from your PDF:")
 
-        # Step 5: Create Prompt Template
-        prompt_template = ChatPromptTemplate.from_template("""
-        You are a helpful assistant. Use the following pieces of context to answer the question.
-        Context: {context}
-        Question: {question}
-        Only return helpful answers based on the context.
-        """)
+    if query:
+        with st.spinner("Searching and generating answer..."):
+            # RAG: Retrieve + Answer
+            docs = vectorstore.similarity_search(query)
+            llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3)
+            chain = load_qa_chain(llm, chain_type="stuff")
+            response = chain.run(input_documents=docs, question=query)
 
-        # Step 6: Set up Chat Model
-        model = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-lite",
-            temperature=0.2,
-            google_api_key=GOOGLE_API_KEY
-        )
+            # Display
+            st.subheader("💬 Answer:")
+            st.success(response)
 
-        # Step 7: Build RAG Chain
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=model,
-            retriever=retriever,
-            chain_type="stuff"
-        )
+            with st.expander("🔍 Relevant Context"):
+                for i, doc in enumerate(docs):
+                    st.markdown(f"**Chunk {i+1}**: {doc.page_content[:500]}...")
 
-        # Step 8: Run and Display Result
-        response = qa_chain.run(question)
-        st.success("✅ Answer generated successfully!")
-        st.write(response)
-
-    except Exception as e:
-        st.error(f"❌ An error occurred: {e}")
